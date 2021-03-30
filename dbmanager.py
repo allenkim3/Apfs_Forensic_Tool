@@ -1,20 +1,17 @@
-import os
 import sqlite3
 
 class dbmanager:
 
-    def file_info_insert(self, file_info, c):
-        for info in file_info:
-            c.executemany("INSERT INTO file VALUES(?, ?, ?, ?, ?, ?, ?\
-                            , ?, ?, ?, ?, ?, ?, ?\
-                            , ?, ?, ?, ?, ?, ?, ?);", (info,))
+    def file_info_insert(self, file_info, c, volume_info):
+        #for info in file_info:
+        c.executemany("INSERT INTO "+volume_info[4]+" VALUES(?, ?, ?, ?, ?, ?, ? \
+                        , ?, ?, ?, ?, ?, ?, ?\
+                        , ?, ?, ?, ?, ?, ?, ?);", file_info)#(info,))
 
-    def __init__(self, file_info, volume_name):
-        if os.path.isfile("apfs.db"):
-            os.remove("apfs.db")
+    def __init__(self, file_info, volume_info):
         conn=sqlite3.connect("apfs.db", isolation_level=None)
         c=conn.cursor()
-        c.execute("CREATE TABLE file \
+        c.execute("CREATE TABLE "+volume_info[4]+" \
                     (ParentFolderID text, \
                     FileID text PRIMARY KEY, \
                     CreatedDate text, \
@@ -37,6 +34,9 @@ class dbmanager:
                     NodeID text, \
                     CreatedDate2 text)")
 
-        c.execute("INSERT INTO file (FileID, Name) VALUES('0x1', '"+volume_name+"');")
 
-        self.file_info_insert(file_info, c)
+        c.execute("INSERT INTO "+volume_info[4]+" (FileID, Name) VALUES('0x1', '"+volume_info[4]+"');")
+        #conn.commit()
+
+        self.file_info_insert(file_info, c, volume_info)
+        conn.close()

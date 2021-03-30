@@ -6,7 +6,7 @@ class keydata:
     def set_key_data(self, apfs, addr):
         apfs.f.seek(addr+0x2A)
         self.size=int.from_bytes(apfs.f.read(2)[::-1], byteorder='big')
-        apfs.f.seek(apfs.BTOM+0x38)
+        apfs.f.seek(addr+0x38)
         key_data=[]
         for i in range(self.size//4):
             key_offset=int.from_bytes(apfs.f.read(2)[::-1], byteorder='big')

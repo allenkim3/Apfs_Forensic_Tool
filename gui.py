@@ -6,6 +6,8 @@ from PyQt5.QtWidgets import *
 class MyApp(QWidget):
     global conn
     global c
+    global table
+    global table_lst
     global QTree
     global QTable
     global QTab
@@ -21,6 +23,10 @@ class MyApp(QWidget):
         super().__init__()
         self.conn=sqlite3.connect("apfs.db", isolation_level=None)
         self.c=self.conn.cursor()
+        self.table_lst=[]
+        self.c.execute("select name from sqlite_master where type='table';")
+        for i in self.c.fetchall():
+            self.table_lst.append(i[0])
         self.apfs=apfs_tmp
         self.f=f
         self.initUI()
@@ -43,18 +49,17 @@ class MyApp(QWidget):
         self.tab2=QWidget()
         self.QTab=QTabWidget()
         self.QTab.addTab(self.tab1, 'Hex')
-        self.QTab.addTab(self.tab2, 'PreView')
         self.label=QLabel()
         self.font=QFont("DejaVu Sans Mono", 8, QFont.Normal, True)
         self.scrollArea=QScrollArea()
 
         self.QTree.itemClicked.connect(self.tableUI)
-        self.QTable.itemClicked.connect(self.tabUI)
+        self.QTable.itemClicked.connect(self.hexUI)
 
         window = QGridLayout()
         window.addWidget(self.QTree, 0, 0, 3, 1)
         window.addWidget(self.QTable, 0, 1, 1, 1)
-        window.addWidget(self.QTab, 2, 1, 1, 1)
+        window.addWidget(self.scrollArea, 2, 1, 1, 1)
         self.setLayout(window)
         self.setGeometry(300, 300, 1000, 700)
         self.setWindowTitle('APFS - '+self.fname)
@@ -65,28 +70,38 @@ class MyApp(QWidget):
         self.QTree.setMaximumWidth(300)
 
         parent = QTreeWidgetItem(self.QTree)
-        parent.setText(0, self.apfs.volume_name)
-        self.findParent(parent, '0x1')
+        parent.setText(0, self.apfs.file_name)
+        for i in self.table_lst:
+            child=QTreeWidgetItem(parent)
+            child.setText(0, i)
+            self.findParent(i, child, '0x1')
 
-    def findParent(self, parent, parent_id):
-        self.c.execute("select * from file where ParentFolderID='"+parent_id+"' \
+    def findParent(self, table_name, parent, parent_id):
+        self.c.execute("select * from "+table_name+" where ParentFolderID='"+parent_id+"' \
                         and GroupPermission/4096=4")
         result=self.c.fetchall()
         for i in range(len(result)):
             child = QTreeWidgetItem(parent)
             child.setText(0, result[i][12])             #12번 인덱스가 파일 이름
-            self.findParent(child, result[i][1])        #1번 인덱스가 parent id
+            self.findParent(table_name, child, result[i][1])        #1번 인덱스가 parent id
 
     def tableUI(self):
-        selectedFile=self.QTree.currentItem().text(0)
-        self.c.execute("select FileID from file where Name='"+selectedFile+"'")
+        selectedFile=self.QTree.currentItem()
+        if selectedFile.text(0) == self.apfs.file_name:
+            return
+        tmp=selectedFile
+        while True:
+            if tmp.parent().text(0) == self.apfs.file_name:
+                break
+            tmp=tmp.parent()
+        self.table=tmp.text(0)
+        self.c.execute("select FileID from "+tmp.text(0)+" where Name='"+selectedFile.text(0)+"'")
         parent_id=self.c.fetchone()[0]
         self.c.execute("select Name, FileSize, GroupPermission, LastWrittenDate \
-                        from file where ParentFolderID='"+parent_id+"'")
+                        from "+tmp.text(0)+" where ParentFolderID='"+parent_id+"'")
         result=self.c.fetchall()
         count=len(result)
         self.QTable.setRowCount(count)
-
         for i in range(count):
             Name, FileSize, GroupPermission, LastWrittenDate=result[i]
             self.QTable.setItem(i, 0, QTableWidgetItem(Name))
@@ -97,10 +112,10 @@ class MyApp(QWidget):
                 self.QTable.setItem(i, 2, QTableWidgetItem("Folder"))
             self.QTable.setItem(i, 3, QTableWidgetItem(LastWrittenDate))
 
-    def tabUI(self):
+    def hexUI(self):
         row=self.QTable.currentIndex().row()
         selectedFileName=self.QTable.item(row, 0).text()
-        self.c.execute("select FileSize, BlockCount, GroupPermission from file \
+        self.c.execute("select FileSize, BlockCount, GroupPermission from "+self.table+" \
                         where Name='"+selectedFileName+"'")
         fileSize, blockCount, groupPermission=self.c.fetchone()
 
@@ -132,7 +147,25 @@ class MyApp(QWidget):
             msg="".join(msg)
         self.label.setText(msg)
         self.label.setFont(self.font)
+        self.label.adjustSize()
         self.scrollArea.setWidget(self.label)
-        self.tab1.layout=QVBoxLayout(self)
-        self.tab1.layout.addWidget(self.scrollArea)
-        self.tab1.setLayout(self.tab1.layout)
+
+    def contextMenuEvent(self, event):
+        menu=QMenu(self)
+        extract_action=menu.addAction("Extract")
+        action=menu.exec_(self.mapToGlobal(event.pos()))
+        if action == extract_action:
+            row = self.QTable.currentIndex().row()
+            selectedFileName = self.QTable.item(row, 0).text()
+            self.c.execute("select FileSize, BlockCount, GroupPermission from " + self.table + " \
+                                    where Name='" + selectedFileName + "'")
+            fileSize, blockCount, groupPermission = self.c.fetchone()
+
+            if int(groupPermission) // 0x1000 == 4:
+                print("This is forder.")
+            else:
+                saveFile=QFileDialog.getSaveFileName(self, 'Save file', './')
+                f=open(saveFile[0], "wb")
+                self.f.seek(self.apfs.MSB + self.apfs.block_size * int(blockCount))
+                data=self.f.read(int(fileSize))
+                f.write(data)
